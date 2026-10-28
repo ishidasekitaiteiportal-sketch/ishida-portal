@@ -638,7 +638,7 @@ async function loadMembers(day, force){
   if (S.tab === 'members') draw();
 }
 /* 今日の画面を開いている間は、1分ごとに状態を描き直し、5分ごとに読み直す */
-setInterval(() => { if (document.activeElement && document.activeElement.id === 'mq') return; if ((S.tab === 'members' || S.tab === 'home') && M.day === 'today' && !document.hidden) { if (S.tab === 'home') { draw(); return; } if (Date.now() - (M.at || 0) > 3e5) { M.at = Date.now(); loadMembers('today', true); } else draw(); } }, 60000);
+setInterval(() => { const ae = document.activeElement; if (ae && /^(INPUT|SELECT|TEXTAREA)$/.test(ae.tagName)) return; if (document.querySelector('#app form') || M.mode === 'admin') return; /* 入力中の画面は描き直さない */ if ((S.tab === 'members' || S.tab === 'home') && M.day === 'today' && !document.hidden) { if (S.tab === 'home') { draw(); return; } if (Date.now() - (M.at || 0) > 3e5) { M.at = Date.now(); loadMembers('today', true); } else draw(); } }, 60000);
 
 /* ---------- カレンダー ---------- */
 const C = { ym: null, data: {}, day: null, open: null, add: false, busy: false };
@@ -757,7 +757,7 @@ async function openWiki(id){
 }
 
 /* ---------- ホーム ---------- */
-const H = { data: null, editGoal: false, editWord: false, busy: false };
+const H = { data: null, editGoal: false, editWord: false, editStay: '', busy: false };
 const man = n => n >= 1e4 ? Math.round(n / 1e4).toLocaleString('ja-JP') : (n / 1e4).toFixed(1);
 function goalCard(h){
   const g = h.goal, admin = h.role === 'admin';
@@ -805,11 +805,11 @@ function homeView(){
     ${H.editWord ? wform : word}
     ${h.canWord && !H.editWord ? `<div><button class="btn ghost" data-act="hword">${h.word ? 'ひとことを書き直す' : '＋ 今日のひとことを書く'}</button></div>` : ''}
     ${todo.length ? `<div class="card"><h2 style="margin-bottom:4px">やること</h2><div class="nlist">${todo.join('')}</div></div>` : ''}
-    ${goalCard(h)}
+    ${h.stayTeam ? stayCard(h) : ''}${h.stayTeam && h.role !== 'admin' ? '' : goalCard(h)}
     <div class="hgrid">
       <div class="card"><div class="card-h"><h2>今日・明日の予定</h2><button class="lnk" data-go="cal">予定を見る →</button></div>
         ${ev ? `<div class="eyebrow" style="margin-top:6px">今日</div>${evList(ev.today)}<div class="eyebrow" style="margin-top:10px">明日</div>${evList(ev.tomorrow)}` : '<p class="note">予定を読み込めませんでした。</p>'}</div>
-      ${homeSales(h)}${homeShift(h)}
+      ${h.stayTeam && h.role !== 'admin' ? '' : homeSales(h)}${homeShift(h)}
     </div>`;
 }
 function homeSales(h){
@@ -832,6 +832,48 @@ function homeShift(h){
   return `<div class="card">${head}<p class="nmeta" style="margin:4px 0 0">${tm(n)} 時点${per ? '・' + esc(per.p) + 'の時間帯' : ''}</p>
     ${pos.length ? `<div class="hcnt">${pos.map(k => `<div><b>${r.pos[k]}名</b><span>${esc(k)}</span></div>`).join('')}</div>` : '<p class="note">いま出勤中の人はいません。</p>'}
     ${stackBar(r.c)}</div>`;
+}
+/* ---------- 宿泊売上（予約チーム・管理者） ---------- */
+function stayCard(h){
+  const st = h.stay; if (!st) return '';
+  const admin = h.role === 'admin', oh = st.onhand, pl = st.plan, pv = st.prev;
+  const pct = (a, b) => b ? (a / b * 100).toFixed(1) + '%' : '—';
+  const leftDays = Math.max(1, st.days - st.today + 1);
+  const restPlan = Math.max(0, pl.rooms - oh.rooms), restPrev = Math.max(0, pv.rooms - oh.rooms);
+  const adr = oh.rooms ? oh.sales / oh.rooms : 0;
+  const occ = st.capacity ? oh.rooms / st.capacity : 0;
+  const ohForm = `<form class="form" id="stayoh" style="margin-top:12px"><div class="row" style="gap:10px;align-items:flex-end">
+      <label style="flex:1 1 140px">オンハンド 宿泊売上（円）<input name="ohSales" inputmode="numeric" value="${oh.sales || ''}" placeholder="例：8500000"></label>
+      <label style="flex:1 1 100px">オンハンド 室数<input name="ohRooms" inputmode="numeric" value="${oh.rooms || ''}" placeholder="例：310"></label>
+      <label style="flex:1 1 130px">何日時点<input type="date" name="asOf" value="${new Date(Date.now() - new Date().getTimezoneOffset() * 6e4).toISOString().slice(0, 10)}"></label></div>
+    <p class="note" style="margin:0">宿泊売上は宿泊＋料理の合計。室数は予約状況表の確定した部屋数（仮予約は入れない）。</p>
+    <div class="row"><button class="btn" type="submit">保存する</button><button class="btn ghost" type="button" data-act="stayx">やめる</button></div></form>`;
+  const planForm = `<form class="form" id="stayplan" style="margin-top:12px"><p class="eyebrow" style="margin:0">${st.month}月の計画・前年・休館日</p><div class="row" style="gap:10px;align-items:flex-end">
+      <label style="flex:1 1 140px">計画 宿泊売上（円）<input name="planSales" inputmode="numeric" value="${pl.sales || ''}"></label>
+      <label style="flex:1 1 100px">計画 販売室数<input name="planRooms" inputmode="numeric" value="${pl.rooms || ''}"></label>
+      <label style="flex:1 1 140px">前年 宿泊売上（円）<input name="prevSales" inputmode="numeric" value="${pv.sales || ''}"></label>
+      <label style="flex:1 1 100px">前年 販売室数<input name="prevRooms" inputmode="numeric" value="${pv.rooms || ''}"></label>
+      <label style="flex:1 1 90px">休館日数<input name="closed" inputmode="numeric" value="${st.closed || ''}" placeholder="例：2"></label></div>
+    <div class="row"><button class="btn" type="submit">保存する</button><button class="btn ghost" type="button" data-act="stayx">やめる</button></div></form>`;
+  const btns = admin ? (H.editStay === 'oh' ? ohForm : H.editStay === 'plan' ? planForm
+    : `<div class="row" style="margin-top:12px"><button class="btn ghost" data-act="stayoh">今日のオンハンドを入れる</button><button class="btn ghost" data-act="stayplan">計画・前年を入れる</button></div>`) : '';
+  const head = `<div class="card-h"><span class="eyebrow">${st.month}月の宿泊売上（オンハンド）</span><span class="scope">予約チーム・管理者</span></div>`;
+  if (!st.hasData || (!oh.rooms && !pl.rooms)) return `<div class="card goal">${head}<p class="note" style="margin:6px 0 0">${st.month}月の数字はまだ入っていません。${admin ? '' : '管理者が入力すると表示されます。'}</p>${btns}</div>`;
+  return `<div class="card goal">${head}
+    <div class="goalgrid"><div>
+      <div class="big">${man(oh.sales)}<small style="font-size:18px"> 万円</small></div>
+      <div class="eyebrow">計画 ${pl.sales ? man(pl.sales) + '万円（' + pct(oh.sales, pl.sales) + '）' : '未入力'} ／ 前年 ${pv.sales ? man(pv.sales) + '万円（' + pct(oh.sales, pv.sales) + '）' : '未入力'}</div>
+      ${pl.rooms ? `<div class="gbar" role="img" aria-label="計画の販売室数に対して${pct(oh.rooms, pl.rooms)}"><i style="width:${Math.min(1, oh.rooms / pl.rooms) * 100}%"></i>${pv.rooms ? `<b style="left:${Math.min(1, pv.rooms / pl.rooms) * 100}%"></b>` : ''}</div>
+      <div class="row" style="justify-content:space-between;font-size:12px"><span class="eyebrow">販売室数 ${oh.rooms}／計画 ${pl.rooms}室</span>${pv.rooms ? `<span style="color:var(--gold)">｜ 前年 ${pv.rooms}室</span>` : ''}</div>` : ''}
+    </div><div class="gstats">
+      <div class="stat"><b>${pl.rooms ? restPlan + '室' : '—'}</b><span>計画まで あと</span></div>
+      <div class="stat"><b>${pv.rooms ? restPrev + '室' : '—'}</b><span>前年まで あと</span></div>
+      <div class="stat"><b>${pl.rooms ? Math.ceil(restPlan / leftDays) + '室' : '—'}</b><span>1日あたり（残り${leftDays}日）</span></div>
+      <div class="stat"><b>${st.capacity ? (occ * 100).toFixed(1) + '%' : '—'}</b><span>オンハンド稼働率</span></div>
+    </div></div>
+    <div class="cheer">${pl.rooms ? (restPlan ? `計画まで あと${restPlan}室。${pl.sales > oh.sales ? '売上はあと' + man(pl.sales - oh.sales) + '万円です。' : ''}` : '計画の販売室数に届きました。ここからの上積みも大切に。') : '計画を入れると、残りの室数が出ます。'}</div>
+    <p class="note">平均室単価 ${adr ? yen(adr) : '—'}・販売可能 ${st.capacity}室（${st.rooms}室×${st.days - st.closed}日、休館日${st.closed}日）${oh.asOf ? `・${esc(String(oh.asOf).replace(/^\d{4}-0?(\d+)-0?(\d+)$/, '$1月$2日'))}時点` : ''}${oh.by ? `（入力：${esc(oh.by)}）` : ''}</p>
+    ${btns}</div>`;
 }
 async function loadHome(){
   try { H.data = await call('home', {}, 'raw'); } catch (e) { H.data = { status: 'ERROR', message: (e && e.message) || String(e) }; }
@@ -969,6 +1011,8 @@ document.addEventListener('click', async ev => {
   if (a === 'aback') { if (A.form && A.edit) { A.form = null; A.edit = null; } else if (A.form) { A.form = null; A.tab = 'new'; } else A.open = null; draw(); return; }
   if (a === 'aredo') { const d = S.ap.detail; A.edit = d; A.form = d.form; draw(); window.scrollTo(0, 0); return; }
   if (a === 'aprint') { window.print(); return; }
+  if (a === 'stayoh' || a === 'stayplan') { H.editStay = a === 'stayoh' ? 'oh' : 'plan'; draw(); return; }
+  if (a === 'stayx') { H.editStay = ''; draw(); return; }
   if (a === 'hgoal') { H.editGoal = true; draw(); return; }
   if (a === 'hgoalx') { H.editGoal = false; draw(); return; }
   if (a === 'hword') { H.editWord = true; draw(); return; }
@@ -1023,6 +1067,14 @@ document.addEventListener('submit', async ev => {
     try { const j = await call(id === 'mgadd' ? 'memAdd' : 'memSave', v, 'raw'); MG.data = j; MG.add = false; draw(); window.scrollTo(0, 0); toast(j.message); }
     catch (e) { toast(e.message); btn.disabled = false; }
     MG.busy = false; return;
+  }
+  if (id === 'stayoh' || id === 'stayplan') {
+    ev.preventDefault(); if (H.busy) return; H.busy = true;
+    const f = new FormData(ev.target), btn = ev.target.querySelector('[type=submit]'); btn.disabled = true;
+    const v = { ym: H.data.stay.ym }; for (const [k, val] of f.entries()) v[k] = String(val);
+    try { const j = await call('staySave', v, 'raw'); H.data.stay = j; H.editStay = ''; draw(); toast(j.message); }
+    catch (e) { toast(e.message); btn.disabled = false; }
+    H.busy = false; return;
   }
   if (id === 'hgoal' || id === 'hword') {
     ev.preventDefault(); if (H.busy) return; H.busy = true;
@@ -1175,7 +1227,8 @@ const DEMO_HOME = { status: 'OK', role: DEMO.role, name: DEMO.role === 'admin' ?
   goal: { amount: 2500000, actual: 1180000, lastDay: 16, updatedAt: '10月17日 9:00', parts: { drink: 820000, betsu: 290000, este: 70000 } },
   word: { text: '紅葉の見頃が近づいてきました。お客様に「今がいちばん」の景色を、一言添えてお伝えしましょう。', by: '見本 支配人', at: '10月17日 8:30' },
   sales: { total: 1180000, drink: 820000, betsu: 290000, este: 70000, lastDay: 16, top: DEMO.role === 'admin' ? [{ name: '見本A', sum: 123915 }, { name: '見本B', sum: 98713 }, { name: '見本C', sum: 86845 }] : null, me: DEMO.role === 'admin' ? null : { sum: 64000, rank: 5, ranked: 9 } },
-  shift: null,
+  shift: null, stayTeam: true,
+  stay: { ym: '2026-10', month: 10, days: 31, today: 17, rooms: 17, plan: { sales: 21000000, rooms: 420 }, prev: { sales: 19500000, rooms: 398 }, closed: 2, capacity: 493, onhand: { sales: 17200000, rooms: 352, asOf: '2026-10-17', by: '見本 支配人', at: '10/17 9:00' }, hasData: true },
   events: { today: [{ title: '増売会議', time: '終日' }, { title: '見本 来館', time: '終日' }], tomorrow: [{ title: '見本 来館', time: '終日' }] } };
 const DEMO_MG = { status: 'OK', depts: ['フロント・予約', '接客部（和）', '板場', '営業推進部', '経理', '総務', '執行部'], sheets: ['見本A', '見本B'], message: '', members: [
   { row: 2, name: '見本 支配人', linked: true, sheet: '', admin: true, manager: true, dept: '執行部', status: '在籍', joined: '2012-12-01', left: '', last: '10月18日', log: [], me: true },
@@ -1188,6 +1241,7 @@ function demoCall(action, x){
     if (action === 'memSave') { const m = DEMO_MG.members.find(y => y.row === x.row); Object.assign(m, { dept: x.dept, admin: x.admin, manager: x.manager, sheet: x.sheet, joined: x.joined, left: x.left, status: x.status }); m.log.push(['たった今', '見本', '変更']); }
     return Object.assign(JSON.parse(JSON.stringify(DEMO_MG)), { message: action === 'memList' ? '' : '保存しました（見本）' });
   }
+  if (action === 'staySave') { const st = DEMO_HOME.stay; if (x.ohRooms) { st.onhand.rooms = +x.ohRooms; st.onhand.sales = +x.ohSales; } if (x.planRooms) { st.plan = { sales: +x.planSales, rooms: +x.planRooms }; st.prev = { sales: +x.prevSales, rooms: +x.prevRooms }; st.closed = +x.closed; st.capacity = 17 * (31 - st.closed); } return Object.assign({ status: 'OK', message: '宿泊売上を保存しました。' }, JSON.parse(JSON.stringify(st))); }
   if (action.indexOf('home') === 0) {
     DEMO_HOME.shift = { missing: '', people: DEMO_MB.people };
     if (action === 'homeGoal') { DEMO_HOME.goal.amount = Number(String(x.amount).replace(/[^\d]/g, '')); DEMO_HOME.message = '目標を保存しました。'; }
