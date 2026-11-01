@@ -897,6 +897,7 @@ function memAdmin(){
     <div class="card"><div class="card-h"><h2 style="font-size:18px">${esc(m.name)}${m.me ? ' <span class="tag">自分</span>' : ''}</h2>${m.status === '退社' ? '<span class="tag must">退社</span>' : ''}</div>
       <p class="nmeta" style="margin:0 0 12px">${m.linked ? `LINE WORKS と結びつき済み${m.last ? '・最終利用 ' + esc(m.last) : ''}` : 'まだ一度もポータルを開いていません'}</p>
       <form class="form" id="mgsave">
+        <label>印の名前<span class="hint">申請書類の印に入る名前（2〜3文字）。空なら名字。例：石田</span><input name="stamp" value="${esc(m.stamp || '')}" maxlength="3" placeholder="例：石田"></label>
         <label>ふりがな（検索用）<input name="kana" value="${esc(m.kana || '')}" maxlength="40" placeholder="例：いしだ はなこ"></label>
         <label>対応できる業務<span class="hint">「、」で区切って入れる（例：着物、利き酒師、英語対応、送迎）</span><input name="skills" value="${esc(m.skills || '')}" maxlength="200"></label>
         <label>部署（異動のときはここを変える）<select name="dept"><option value="">未設定</option>${d.depts.map(x => `<option ${x === m.dept ? 'selected' : ''}>${esc(x)}</option>`).join('')}</select></label>
@@ -1063,7 +1064,7 @@ document.addEventListener('submit', async ev => {
     const m = id === 'mgsave' && MG.data.members.find(x => x.row === MG.open);
     if (m && f.get('status') === '退社' && m.status !== '退社' && !confirm(m.name + 'さんを退社にします。よろしいですか？')) { MG.busy = false; btn.disabled = false; return; }
     const v = id === 'mgadd' ? { name: f.get('name'), dept: f.get('dept'), joined: f.get('joined') }
-      : { row: m.row, name: m.name, dept: f.get('dept'), admin: m.me ? true : !!f.get('admin'), manager: !!f.get('manager'), sheet: f.get('sheet') || '', kana: f.get('kana'), skills: f.get('skills'), joined: f.get('joined'), left: f.get('left'), status: m.me ? '在籍' : f.get('status') };
+      : { row: m.row, name: m.name, dept: f.get('dept'), admin: m.me ? true : !!f.get('admin'), manager: !!f.get('manager'), sheet: f.get('sheet') || '', kana: f.get('kana'), skills: f.get('skills'), stamp: f.get('stamp'), joined: f.get('joined'), left: f.get('left'), status: m.me ? '在籍' : f.get('status') };
     try { const j = await call(id === 'mgadd' ? 'memAdd' : 'memSave', v, 'raw'); MG.data = j; MG.add = false; draw(); window.scrollTo(0, 0); toast(j.message); }
     catch (e) { toast(e.message); btn.disabled = false; }
     MG.busy = false; return;
